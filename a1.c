@@ -4,8 +4,8 @@
 #include "mpi.h"
 /*
 Notes: gmp uses unsigned longs for their number calculations so we need to do casts between ints and unsigned longs
-operations between ui and int result in a ui
 
+lines 98-132 are incomplete
 
 */
 int main(int argc, char *argv[]) {
