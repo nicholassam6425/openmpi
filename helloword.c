@@ -4,10 +4,10 @@ int main(int argc, char **argv) {
 int num_procs;
 int ID;
 if (MPI_Init(&argc, &argv) != MPI_SUCCESS) {
-printf(ʺ ERROR ʺ);
+printf(" ERROR ");
 }
 MPI_Comm_size (MPI_COMM_WORLD, &num_procs);
 MPI_Comm_rank (MPI_COMM_WORLD, &ID);
-printf(ʺ hello world from process %d of %d \nʺ,ID,num_procs);
+printf(" hello world from process %d of %d \n",ID,num_procs);
 MPI_Finalize();
 }
