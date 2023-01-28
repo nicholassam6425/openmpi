@@ -9,7 +9,7 @@ Notes: gmp uses unsigned longs for their number calculations so we need to do ca
 lines 98-132 are incomplete
 
 */
-int main(int argc, char *argv[]) {
+int main(int argc, char **argv) {
     unsigned long MAX_NUMBER = 1000000000; //one billion
     //unsigned long MAX_NUMBER = 1 000 000 000 000 //one trillion
     int NUM_REPS = 15; //increase to have fewer false positives. recommended range: 15-50
@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     
     //branch start
     MPI_Init(&argc, &argv);
-
+    
     //init mpz ints
     mpz_t my_cursor;
     mpz_init(my_cursor);
@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
             my_start += MAX_NUMBER % num_procs;
         }
     } 
-    
+    printf("a");
     //find the first prime number, to calculate the gap between primes between splits
     mpz_set_ui(my_cursor, my_start); //this is equivalent to my_cursor = my_start
     while (mpz_probab_prime_p(my_cursor, NUM_REPS) == 0) {
@@ -81,7 +81,7 @@ int main(int argc, char *argv[]) {
     my_largest_prime_gap = mpz_get_ui(my_cursor) - my_prev_prime;
     message[3] = my_prev_prime;
     message[4] = mpz_get_ui(my_cursor);
-
+    
     //find largest prime gap and related information in split
     while (mpz_get_ui(my_cursor) <= my_start + n) { //this is equivalent to my_cursor <= my_start +n
         my_prev_prime = mpz_get_ui(my_cursor);
@@ -97,6 +97,7 @@ int main(int argc, char *argv[]) {
     message[2] = my_largest_prime_gap;
     printf("DEBUG: Process %d found largest prime gap %lu, between %lu and %lu, in split between %lu and %lu\n", my_rank, message[2], message[3], message[4], my_start, my_start+n);
     if (my_rank == 0) { //master proc
+        printf("master proc")
         //append all the messages to final array, starting with master proc's message
         final_array = malloc(5 * num_procs * sizeof(unsigned long));
         memcpy(final_array, message, 5 * sizeof(unsigned long));
