@@ -6,7 +6,7 @@
 /*
 Notes: gmp uses unsigned longs for their number calculations so we need to do casts between ints and unsigned longs
 
-Line 121 is fucked
+Line 122 is fucked, current error is that MPI_Recv overwrites processor 0's variables with the processor it's receiving from's variables
 */
 int main(int argc, char **argv)
 {
@@ -27,8 +27,8 @@ int main(int argc, char **argv)
     // example: a processor who receives the split 0-10 (2 3 5 7) should have a message {2, 7, 2, 3, 5}.
     unsigned long message[5];
     unsigned long my_start, n, my_prime_start, my_largest_prime_gap, my_prev_prime, largest_prime_gap, left_prime, right_prime; // to indicate the split per processor
-    MPI_Status *status;
-    unsigned long *final_array, *real_final_array;
+    MPI_Status status;
+    unsigned long *final_array;
     double start_time, end_time, time_elapsed;
     // branch start
     MPI_Init(&argc, &argv);
@@ -103,27 +103,18 @@ int main(int argc, char **argv)
     printf("DEBUG: Process %d found largest prime gap %lu, between %lu and %lu, in split between %lu and %lu\n", my_rank, message[2], message[3], message[4], my_start, my_start + n);
     if (my_rank == 0)
     { // master proc
-        printf("master proc");
-        int i;
-        int *j;
-        
+        int i;   
         // append all the messages to final array, starting with master proc's message
-        printf("\nsizeof(final_array) = %d", sizeof(final_array));
         final_array = malloc(5 * num_procs * sizeof(unsigned long));
         memcpy(final_array, message, 5 * sizeof(unsigned long));
-        printf("\nsizeof(final_array) = %d", sizeof(final_array));
-        printf("\n{%lu, %lu, %lu, %lu, %lu}", final_array[0], final_array[1], final_array[2], final_array[3], final_array[4]);
 
         for (source = 1; source < num_procs; source++)
         {
             // mpi receive , then do same thing as above, but 1st argument of memcpy should be final array + (5*i)
             //                        this could be wrong, its either 5 or 40. 5 unsigned longs, or 40 bytes ^
-            MPI_Recv(message, sizeof(message), MPI_UNSIGNED_LONG, source, tag, MPI_COMM_WORLD, status);
-            printf("\nMessage from processor %d: {%lu, %lu, %lu, %lu, %lu}", source, message[0], message[1], message[2], message[3], message[4]);
-            MPI_Get_count(status, MPI_UNSIGNED_LONG, j);
-            printf("\nstatus:%d", *j); // 0
-            printf("\n{%lu}", final_array);
-            memcpy(final_array + (5), message, 5 * sizeof(unsigned long));
+            MPI_Recv(message, sizeof(5 * sizeof(unsigned long)), MPI_UNSIGNED_LONG, source, tag, MPI_COMM_WORLD, &status);
+            printf("\nDEBUG: Message from processor %d: {%lu, %lu, %lu, %lu, %lu}", source, message[0], message[1], message[2], message[3], message[4]);
+            memcpy(final_array + (5*source), message, 5 * sizeof(unsigned long));
         }
 
         //calculate all the prime gaps between splits, while simultaneously finding the largest prime gap
@@ -132,37 +123,32 @@ int main(int argc, char **argv)
         for(int i = 0; i < 5*num_procs;i++) {
             if (i % 5 == 0 && i != 0) {
                 //this is all the first primes in a processor's split, except the first one, which has no previous prime
-
-                a = message[i%5];
-            } else if (i % 5 == 1 && i != 5*num_procs-1) {
+                a = final_array[i];
+                if (a - b > largest_prime_gap) {
+                    largest_prime_gap = a - b;
+                    left_prime = b;
+                    right_prime = a;
+                }
+            } if (i % 5 == 1 && i != 5*num_procs-4) {
                 //this is all the final primes in a processor's split, except the last one, which has no next prime
-
-                b = message[i%5];
-            } else if (i % 5 == 2 && largest_prime_gap < message[i]) {
+                b = final_array[i];
+            } if (i % 5 == 2 && largest_prime_gap < final_array[i]) {
                 //make 2 unsigned longs in vars at the top for left prime and right prime and save to it
-                largest_prime_gap = message[i%5];
-                left_prime = message[i%5+1];
-                right_prime = message[i%5+2];
-            } else if (a - b > largest_prime_gap) {
-                largest_prime_gap = a - b;;
-                left_prime = b;
-                right_prime = a;
-            }
+                largest_prime_gap = final_array[i];
+                left_prime = final_array[i+1];
+                right_prime = final_array[i+2];
+            } 
         }
-        printf("largest prime gap");
+        end_time = MPI_Wtime();
+        time_elapsed = end_time - start_time;
+        printf("\nThe largest gap between consecutive prime numbers under %lu is %lu, between %lu and %lu.\nTime elapsed:%f\n", MAX_NUMBER, largest_prime_gap, left_prime, right_prime, time_elapsed);
     }
     else
     { // slave proc
-        printf("Processor: %d, %d", my_rank, NUM_REPS);
-        MPI_Send(message, sizeof(message), MPI_UNSIGNED_LONG, dest, tag, MPI_COMM_WORLD);
+        MPI_Send(message, sizeof(5 * sizeof(unsigned long)), MPI_UNSIGNED_LONG, dest, tag, MPI_COMM_WORLD);
     }
-    MPI_Barrier(MPI_COMM_WORLD);
     end_time = MPI_Wtime();
     time_elapsed = end_time - start_time;
-    if (my_rank == 0)
-    {
-        printf("\nThe largest gap between consecutive prime numbers under %lu is %lu, between %lu and %lu.\nTime elapsed:%d", MAX_NUMBER, largest_prime_gap, left_prime, right_prime, time_elapsed);
-    }
     MPI_Finalize();
     return 0;
 }
