@@ -3,11 +3,7 @@
 #include <stdlib.h>
 #include "gmp.h"
 #include "mpi.h"
-/*
-Notes: gmp uses unsigned longs for their number calculations so we need to do casts between ints and unsigned longs
 
-Line 122 is fucked, current error is that MPI_Recv overwrites processor 0's variables with the processor it's receiving from's variables
-*/
 int main(int argc, char **argv)
 {
     unsigned long MAX_NUMBER = 10000000; // ten million
@@ -147,8 +143,6 @@ int main(int argc, char **argv)
     { // slave proc
         MPI_Send(message, sizeof(5 * sizeof(unsigned long)), MPI_UNSIGNED_LONG, dest, tag, MPI_COMM_WORLD);
     }
-    end_time = MPI_Wtime();
-    time_elapsed = end_time - start_time;
     MPI_Finalize();
     return 0;
 }
