@@ -6,9 +6,9 @@
 
 int main(int argc, char **argv)
 {
-    unsigned long MAX_NUMBER = 10000000; // ten million
-    // unsigned long MAX_NUMBER = 1 000 000 000; //one billion
-    // unsigned long MAX_NUMBER = 1 000 000 000 000 //one trillion
+    // unsigned long MAX_NUMBER = 10000000; // ten million
+    unsigned long MAX_NUMBER = 1000000000; //one billion
+    // unsigned long MAX_NUMBER = 1000000000000 //one trillion
     int NUM_REPS = 15; // increase to have fewer false positives. recommended range: 15-50
     int my_rank;
     int num_procs;
@@ -54,7 +54,7 @@ int main(int argc, char **argv)
         if (my_rank < MAX_NUMBER % num_procs)
         {
             n += 1;
-            my_rank += my_rank;
+            my_start += my_rank;
         }
         else
         {
