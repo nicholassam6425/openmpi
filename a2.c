@@ -22,9 +22,11 @@ this creates partitions where A_i ... A_ilogn and B_i ... B_j[i] cover the same 
 #include <stdbool.h>
 #include "mpi.h"
 
-void printArray(int *arr, int len) {
+void printArray(int *arr, int len)
+{
     printf("{%d", arr[0]);
-    for (int i = 1; i < len; i++) {
+    for (int i = 1; i < len; i++)
+    {
         printf(", %d", arr[i]);
     }
     printf("}\n");
@@ -128,34 +130,97 @@ int main(int argc, char *argv[])
         if (my_rank < ARRAY_SIZE % num_procs)
         {
             n += 1;
-            my_rank += my_rank;
+            my_start += my_rank;
         }
         else
         {
             my_start += ARRAY_SIZE % num_procs;
         }
     }
-    int highest_num_index = n + my_start;
+    int highest_num_index = n + my_start - 1;
     int my_B_end = binarySearch(B, 0, ARRAY_SIZE - 1, A[highest_num_index]);
+    my_B_end += 1;
     int my_B_start;
+
     // proc 0 tells proc 1 what it's B end is, and that will become proc 1's B start. repeat for all procs
-    if (my_rank == 0) //root proc (proc 0)
+    if (my_rank == 0) // root proc (proc 0)
     {
         my_B_start = 0;
         MPI_Send(&my_B_end, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
     }
-    else if (my_rank == num_procs - 1) //last proc (proc p-1)
+    else if (my_rank == num_procs - 1) // last proc (proc p-1)
     {
-        MPI_Recv(&my_B_start, 1, MPI_INT, my_rank-1, 0, MPI_COMM_WORLD, NULL);
+        MPI_Recv(&my_B_start, 1, MPI_INT, my_rank - 1, 0, MPI_COMM_WORLD, NULL);
+        my_B_end = ARRAY_SIZE;
     }
-    else //every other proc
+    else // every other proc
     {
-        MPI_Recv(&my_B_start, 1, MPI_INT, my_rank-1, 0, MPI_COMM_WORLD, NULL);
-        MPI_Send(&my_B_end, 1, MPI_INT, my_rank+1, 0, MPI_COMM_WORLD);
+        MPI_Recv(&my_B_start, 1, MPI_INT, my_rank - 1, 0, MPI_COMM_WORLD, NULL);
+        MPI_Send(&my_B_end, 1, MPI_INT, my_rank + 1, 0, MPI_COMM_WORLD);
     }
-    //merge A and B 
+    // merge A and B
     printf("%d: {A: %d - %d, B: %d - %d}\n", my_rank, my_start, highest_num_index, my_B_start, my_B_end);
-
+    int *sub_C;
+    int size = (my_B_end - my_B_start) + (highest_num_index - my_start + 1);
+    if (my_B_end != -1)
+    {
+        sub_C = malloc(size * sizeof(int));
+        int i = my_start, j = my_B_start, k = 0;
+        while (i <= n + my_start && j < my_B_end)
+        {
+            if (A[i] < B[j])
+            {
+                sub_C[k++] = A[i++];
+            }
+            else
+            {
+                sub_C[k++] = B[j++];
+            }
+        }
+        while (i <= n + my_start)
+        {
+            sub_C[k++] = A[i++];
+        }
+        while (j < my_B_end)
+        {
+            sub_C[k++] = B[j++];
+        }
+    }
+    else if (my_B_end == -1)
+    {
+        sub_C = malloc((n + 1) * sizeof(int));
+        int j = 0;
+        for (int i = my_start; i <= n + my_start; i++)
+        {
+            sub_C[j++] = A[i];
+        }
+    }
+    printf("%d's C: ", my_rank);
+    printArray(sub_C, size);
+    if (my_rank == 0)
+    {
+        MPI_Status status;
+        int *C = malloc(2 * ARRAY_SIZE * sizeof(int));
+        memcpy(C, sub_C, 2 * ARRAY_SIZE * sizeof(int));
+        int C_index = size;
+        for (int i = 1; i < num_procs; i++)
+        {
+            MPI_Probe(i, 0, MPI_COMM_WORLD, &status);
+            MPI_Get_count(&status, MPI_INT, &size);
+            sub_C = (int*)realloc(sub_C, size * sizeof(int));
+            MPI_Recv(sub_C, size, MPI_INT, i, 0, MPI_COMM_WORLD, NULL);
+            printf("Root received: ");
+            printArray(sub_C, size);
+            printf("C_index: %d\nsize: %d\n", C_index, size);
+            memcpy(&C[C_index], sub_C, 2 * ARRAY_SIZE * sizeof(int));
+            C_index += size;
+        }
+        printArray(C, ARRAY_SIZE*2);
+    }
+    else
+    {
+        MPI_Send(sub_C, size, MPI_INT, 0, 0, MPI_COMM_WORLD);
+    }
     MPI_Finalize();
     return 0;
 }
