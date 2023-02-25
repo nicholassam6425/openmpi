@@ -87,16 +87,19 @@ int main(int argc, char *argv[])
     }
 
     int my_rank, num_procs;
-
+    double start_time, end_time, time_elapsed;
     // parse array size input
     int ARRAY_SIZE = atoi(argv[1]);
 
     // mpi time yippee
     MPI_Init(&argc, &argv);
 
+    MPI_Barrier(MPI_COMM_WORLD);
+    start_time = MPI_Wtime();
+
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-
+    
     int A[ARRAY_SIZE], B[ARRAY_SIZE];
 
     if (my_rank == 0)
@@ -159,9 +162,10 @@ int main(int argc, char *argv[])
         MPI_Send(&my_B_end, 1, MPI_INT, my_rank + 1, 0, MPI_COMM_WORLD);
     }
     // merge A and B
-    printf("%d: {A: %d - %d, B: %d - %d}\n", my_rank, my_start, highest_num_index, my_B_start, my_B_end);
     int *sub_C;
     int size = (my_B_end - my_B_start) + (highest_num_index - my_start + 1);
+
+    printf("%d: {A: %d - %d, B: %d - %d, size: %d}\n", my_rank, my_start, highest_num_index, my_B_start, my_B_end, size);
     if (my_B_end != -1)
     {
         sub_C = malloc(size * sizeof(int));
@@ -195,8 +199,6 @@ int main(int argc, char *argv[])
             sub_C[j++] = A[i];
         }
     }
-    printf("%d's C: ", my_rank);
-    printArray(sub_C, size);
     if (my_rank == 0)
     {
         MPI_Status status;
@@ -205,6 +207,7 @@ int main(int argc, char *argv[])
         int C_index = size;
         for (int i = 1; i < num_procs; i++)
         {
+            printf("i: %d\n", i);
             MPI_Probe(i, 0, MPI_COMM_WORLD, &status);
             MPI_Get_count(&status, MPI_INT, &size);
             sub_C = (int*)realloc(sub_C, size * sizeof(int));
@@ -215,12 +218,21 @@ int main(int argc, char *argv[])
             memcpy(&C[C_index], sub_C, 2 * ARRAY_SIZE * sizeof(int));
             C_index += size;
         }
-        printArray(C, ARRAY_SIZE*2);
+        printArray(C, ARRAY_SIZE*2-1);
+
+        end_time = MPI_Wtime();
+        time_elapsed = end_time - start_time;
+        printf("Time elapsed: %f\n", time_elapsed);
+        free(C);
+        
     }
     else
     {
         MPI_Send(sub_C, size, MPI_INT, 0, 0, MPI_COMM_WORLD);
     }
+    free(A);
+    free(B);
+    free(sub_C);
     MPI_Finalize();
     return 0;
 }
