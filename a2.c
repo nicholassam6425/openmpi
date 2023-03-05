@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
     }
 
     int my_rank, num_procs;
-    double start_time, end_time, time_elapsed;
+    double start_time, start_time2, end_time, time_elapsed;
     // parse array size input
     int ARRAY_SIZE = atoi(argv[1]);
 
@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
 
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-    
+
     int A[ARRAY_SIZE], B[ARRAY_SIZE];
 
     if (my_rank == 0)
@@ -109,16 +109,13 @@ int main(int argc, char *argv[])
         srand(time(NULL));
         for (int i = 0; i < ARRAY_SIZE; i++)
         {
-            A[i] = rand() % 1000;
-            B[i] = rand() % 1000;
+            A[i] = rand() % __INT_MAX__;
+            B[i] = rand() % __INT_MAX__;
         }
         qsort(A, ARRAY_SIZE, sizeof(int), sortfunc);
         qsort(B, ARRAY_SIZE, sizeof(int), sortfunc);
-        printf("A: ");
-        printArray(A, ARRAY_SIZE);
-        printf("B: ");
-        printArray(B, ARRAY_SIZE);
     }
+    start_time2 = MPI_Wtime();
     // root proc sends A and B to all other procs
     MPI_Bcast(A, ARRAY_SIZE, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(B, ARRAY_SIZE, MPI_INT, 0, MPI_COMM_WORLD);
@@ -127,6 +124,7 @@ int main(int argc, char *argv[])
     // i think if you just change n to logn or something it should work?
     int n = ARRAY_SIZE / num_procs;
     int my_start = n * my_rank;
+
     // copypasted this from a1, it should work.
     if (ARRAY_SIZE % num_procs != 0)
     {
@@ -140,6 +138,7 @@ int main(int argc, char *argv[])
             my_start += ARRAY_SIZE % num_procs;
         }
     }
+    
     int highest_num_index = n + my_start - 1;
     int my_B_end = binarySearch(B, 0, ARRAY_SIZE - 1, A[highest_num_index]);
     my_B_end += 1;
@@ -154,23 +153,25 @@ int main(int argc, char *argv[])
     else if (my_rank == num_procs - 1) // last proc (proc p-1)
     {
         MPI_Recv(&my_B_start, 1, MPI_INT, my_rank - 1, 0, MPI_COMM_WORLD, NULL);
+        my_B_start += 1;
         my_B_end = ARRAY_SIZE;
     }
     else // every other proc
     {
         MPI_Recv(&my_B_start, 1, MPI_INT, my_rank - 1, 0, MPI_COMM_WORLD, NULL);
+        my_B_start += 1;
         MPI_Send(&my_B_end, 1, MPI_INT, my_rank + 1, 0, MPI_COMM_WORLD);
     }
     // merge A and B
     int *sub_C;
-    int size = (my_B_end - my_B_start) + (highest_num_index - my_start + 1);
+    int size = (my_B_end - my_B_start) + (highest_num_index - my_start) + 2;
 
     printf("%d: {A: %d - %d, B: %d - %d, size: %d}\n", my_rank, my_start, highest_num_index, my_B_start, my_B_end, size);
     if (my_B_end != -1)
     {
         sub_C = malloc(size * sizeof(int));
         int i = my_start, j = my_B_start, k = 0;
-        while (i <= n + my_start && j < my_B_end)
+        while (i <= n + my_start && j <= my_B_end)
         {
             if (A[i] < B[j])
             {
@@ -185,10 +186,11 @@ int main(int argc, char *argv[])
         {
             sub_C[k++] = A[i++];
         }
-        while (j < my_B_end)
+        while (j <= my_B_end)
         {
             sub_C[k++] = B[j++];
         }
+        printf("Proc %d merged successfully.\n", my_rank);
     }
     else if (my_B_end == -1)
     {
@@ -198,41 +200,39 @@ int main(int argc, char *argv[])
         {
             sub_C[j++] = A[i];
         }
+        size = n+1;
     }
+
     if (my_rank == 0)
     {
         MPI_Status status;
-        int *C = malloc(2 * ARRAY_SIZE * sizeof(int));
-        memcpy(C, sub_C, 2 * ARRAY_SIZE * sizeof(int));
+        int *C;
+        C = malloc(2 * ARRAY_SIZE * sizeof(int));
+        memcpy(C, sub_C, size * sizeof(int));
         int C_index = size;
+        printf("Proc %d received Proc %d successfully\n", my_rank, my_rank);
         for (int i = 1; i < num_procs; i++)
         {
-            printf("i: %d\n", i);
             MPI_Probe(i, 0, MPI_COMM_WORLD, &status);
             MPI_Get_count(&status, MPI_INT, &size);
-            sub_C = (int*)realloc(sub_C, size * sizeof(int));
+            sub_C = realloc(sub_C, size * sizeof(int));
             MPI_Recv(sub_C, size, MPI_INT, i, 0, MPI_COMM_WORLD, NULL);
-            printf("Root received: ");
-            printArray(sub_C, size);
-            printf("C_index: %d\nsize: %d\n", C_index, size);
-            memcpy(&C[C_index], sub_C, 2 * ARRAY_SIZE * sizeof(int));
+            memcpy(C + C_index, sub_C, size * sizeof(int));
             C_index += size;
+            printf("Proc %d received Proc %d successfully\n", my_rank, i);
         }
-        printArray(C, ARRAY_SIZE*2-1);
 
         end_time = MPI_Wtime();
         time_elapsed = end_time - start_time;
-        printf("Time elapsed: %f\n", time_elapsed);
-        free(C);
-        
+        printf("Time elapsed (including sorting initial array): %f\n", time_elapsed);
+        time_elapsed = end_time - start_time2;
+        printf("Time elapsed (excluding sorting initial array): %f\n", time_elapsed);
+
     }
     else
     {
         MPI_Send(sub_C, size, MPI_INT, 0, 0, MPI_COMM_WORLD);
     }
-    free(A);
-    free(B);
-    free(sub_C);
     MPI_Finalize();
     return 0;
 }
