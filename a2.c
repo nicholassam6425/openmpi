@@ -20,6 +20,7 @@ this creates partitions where A_i ... A_ilogn and B_i ... B_j[i] cover the same 
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include "mpi.h"
 
 void printArray(int *arr, int len)
@@ -34,30 +35,45 @@ void printArray(int *arr, int len)
 
 int binarySearch(int arr[], int l, int r, int x)
 {
-    if (r >= l)
+    // if (r >= l)
+    // {
+    //     int mid = l + (r - l) / 2;
+
+    //     if (arr[mid] == x)
+    //     {
+    //         return mid;
+    //     }
+
+    //     if (arr[mid] > x)
+    //     {
+    //         return binarySearch(arr, l, mid - 1, x);
+    //     }
+
+    //     return binarySearch(arr, mid + 1, r, x);
+    // }
+
+    // // if x is not found, return the next smallest number
+    // else
+    // {
+    //     return r;
+    // }
+
+    while (l <= r)
     {
-        int mid = l + (r - l) / 2;
-
-        if (arr[mid] == x)
-        {
-            return mid;
-        }
-
-        if (arr[mid] > x)
-        {
-            return binarySearch(arr, l, mid - 1, x);
-        }
-
-        return binarySearch(arr, mid + 1, r, x);
+        int m = l + (r - l) / 2;
+        // Check if x is present at mid
+        if (arr[m] == x)
+            return m;
+        // If x greater, ignore left half
+        if (arr[m] < x)
+            l = m + 1;
+        // If x is smaller, ignore right half
+        else
+            r = m - 1;
     }
-
-    // if x is not found, return the next smallest number
-    else
-    {
-        return r;
-    }
+    //return the number to the left if not found
+    return r;
 }
-
 // returns true if number is a positive number
 bool isNumber(char number[])
 {
@@ -104,6 +120,11 @@ int main(int argc, char *argv[])
 
     if (my_rank == 0)
     {
+        printf("Executing parallel merge on %d processors\n", num_procs);
+    }
+    printf("Processor %d check\n", my_rank);
+    if (my_rank == 0)
+    {
         // randomly generate arrays then sort them
         // root processor has to do this or else all the A's and B's are different
         srand(time(NULL));
@@ -112,14 +133,31 @@ int main(int argc, char *argv[])
             A[i] = rand() % __INT_MAX__;
             B[i] = rand() % __INT_MAX__;
         }
+        printf("Arrays generated\n");
         qsort(A, ARRAY_SIZE, sizeof(int), sortfunc);
         qsort(B, ARRAY_SIZE, sizeof(int), sortfunc);
+        printf("Arrays sorted\n");
     }
     start_time2 = MPI_Wtime();
     // root proc sends A and B to all other procs
-    MPI_Bcast(A, ARRAY_SIZE, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(B, ARRAY_SIZE, MPI_INT, 0, MPI_COMM_WORLD);
-
+    if (my_rank == 0)
+    {
+        for (int i = 1; i < num_procs; i++) {
+            printf("Proc 0 sending to %d", i);
+            MPI_Send(A, ARRAY_SIZE, MPI_INT, i, 0, MPI_COMM_WORLD);
+            MPI_Send(B, ARRAY_SIZE, MPI_INT, i, 1, MPI_COMM_WORLD);
+        }
+    }
+    else
+    {
+        MPI_Recv(A, ARRAY_SIZE, MPI_INT, 0, 0, MPI_COMM_WORLD, NULL);
+        MPI_Recv(B, ARRAY_SIZE, MPI_INT, 0, 1, MPI_COMM_WORLD, NULL);
+        printf("Proc %d received A & B\n", my_rank);
+    }
+    if (my_rank == 0)
+    {
+        printf("Successfully broadcast A & B to all processors");
+    }
     // for the time being im doing n/p so that it's an even split between procs.
     // i think if you just change n to logn or something it should work?
     int n = ARRAY_SIZE / num_procs;
@@ -130,6 +168,7 @@ int main(int argc, char *argv[])
     {
         if (my_rank < ARRAY_SIZE % num_procs)
         {
+            
             n += 1;
             my_start += my_rank;
         }
@@ -138,28 +177,32 @@ int main(int argc, char *argv[])
             my_start += ARRAY_SIZE % num_procs;
         }
     }
-    
     int highest_num_index = n + my_start - 1;
     int my_B_end = binarySearch(B, 0, ARRAY_SIZE - 1, A[highest_num_index]);
     my_B_end += 1;
     int my_B_start;
+    printf("Proc %d binary search successful", my_rank);
 
     // proc 0 tells proc 1 what it's B end is, and that will become proc 1's B start. repeat for all procs
     if (my_rank == 0) // root proc (proc 0)
     {
+        printf("%d sending info\n", my_rank);
         my_B_start = 0;
         MPI_Send(&my_B_end, 1, MPI_INT, 1, 0, MPI_COMM_WORLD);
     }
     else if (my_rank == num_procs - 1) // last proc (proc p-1)
     {
         MPI_Recv(&my_B_start, 1, MPI_INT, my_rank - 1, 0, MPI_COMM_WORLD, NULL);
+        printf("%d received info\n", my_rank);
         my_B_start += 1;
         my_B_end = ARRAY_SIZE;
     }
     else // every other proc
     {
         MPI_Recv(&my_B_start, 1, MPI_INT, my_rank - 1, 0, MPI_COMM_WORLD, NULL);
+        printf("%d received info\n", my_rank);
         my_B_start += 1;
+        printf("%d sending info\n", my_rank);
         MPI_Send(&my_B_end, 1, MPI_INT, my_rank + 1, 0, MPI_COMM_WORLD);
     }
     // merge A and B
@@ -190,7 +233,6 @@ int main(int argc, char *argv[])
         {
             sub_C[k++] = B[j++];
         }
-        printf("Proc %d merged successfully.\n", my_rank);
     }
     else if (my_B_end == -1)
     {
@@ -200,9 +242,9 @@ int main(int argc, char *argv[])
         {
             sub_C[j++] = A[i];
         }
-        size = n+1;
+        size = n + 1;
     }
-
+    printf("Proc %d merged successfully.\n", my_rank);
     if (my_rank == 0)
     {
         MPI_Status status;
@@ -227,7 +269,6 @@ int main(int argc, char *argv[])
         printf("Time elapsed (including sorting initial array): %f\n", time_elapsed);
         time_elapsed = end_time - start_time2;
         printf("Time elapsed (excluding sorting initial array): %f\n", time_elapsed);
-
     }
     else
     {
