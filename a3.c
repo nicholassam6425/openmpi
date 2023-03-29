@@ -7,6 +7,8 @@
 #include <math.h>
 #include "mpi.h"
 
+#define printload 1
+
 bool isNumber(char number[])
 {
     int i = 0;
@@ -31,10 +33,10 @@ int main(int argc, char *argv[])
     int my_rank, num_procs;
     double start_time, end_time, time_elapsed;
     MPI_Status status;
-    int *in = NULL;
+    long long *in = NULL;
     int insize;
-    int *out = NULL;
-    int outsize = 0;
+    long long *out = NULL;
+    long long outsize = 0;
     int N = strtol(argv[1], NULL, 10);
     MPI_Init(&argc, &argv);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -45,141 +47,139 @@ int main(int argc, char *argv[])
 
     // each processor finds which rows to calculate
     int *calc_rows;
-    int num_rows = (N/2) / num_procs;
+    int num_rows;
+    num_rows = (N / 2) / num_procs;
     num_rows *= 2;
-    if (my_rank < (N/2) % num_procs)
+    if (my_rank < (N / 2) % num_procs)
     {
         num_rows += 2;
     }
+    if (N % 2 != 0)
+    {
+        if (my_rank == (N / 2))
+        {
+            num_rows++;
+        }
+        else if (my_rank == 0 && (N / 2) + 1 >= num_procs)
+        {
+            num_rows++;
+        }
+    }
     calc_rows = malloc(num_rows * sizeof(int));
-    int counter = 0;
+    long long counter = 0;
     for (int i = 0; counter < num_rows; i++)
     {
         calc_rows[counter++] = (i * num_procs) + (my_rank + 1);
         calc_rows[counter++] = N - ((i * num_procs) + (my_rank));
     }
-    // /*  this code block prints the amount of multiplication operations each processor must complete
+    if (N % 2 != 0)
+    {
+        if (my_rank == (N / 2))
+        {
+            calc_rows[counter++] = (N / 2) + 1;
+        }
+        else if (my_rank == 0 && (N / 2) + 1 >= num_procs)
+        {
+            calc_rows[counter++] = (N / 2) + 1;
+        }
+    }
+#ifdef printload // this code block prints the amount of multiplication operations each processor must complete
     counter = 0;
     for (int i = 0; i < num_rows; i++)
     {
         counter += calc_rows[i];
     }
     printf("%d load: %d\n", my_rank, counter);
-    // */
-    if (N - my_rank < ((int)sqrt(__INT_MAX__)) + 1) // if N is small enough, we use the more memory-intensive method to save on time
+#endif
+    bool *nums;
+    long long max_num = ((long long)N - my_rank) * (N - my_rank);
+    printf("%d max num: %lld\n", my_rank, max_num);
+    nums = malloc((max_num) * sizeof(bool));
+    memset(nums, false, (max_num) * sizeof(bool));
+    printf("%d finished memset\n", my_rank);
+    for (int i = 0; i < num_rows; i++)
     {
-        bool *nums;
-        nums = malloc(((N - my_rank) * (N - my_rank) + 1) * sizeof(bool));
-        memset(nums, false, (N - my_rank) * (N - my_rank) + 1);
-        for (int i = 0; i < num_rows; i++)
+        for (long long j = 1; j <= calc_rows[i]; j++)
         {
-            for (int j = 1; j <= calc_rows[i]; j++)
-            {
-                nums[calc_rows[i] * j] = true;
-            }
-        }
-        for (int i = 0; i < (N - my_rank) * (N - my_rank) + 1; i++)
-        {
-            if (nums[i] == true)
-            {
-                out = realloc(out, (outsize + 1) * sizeof(int));
-                out[outsize++] = i;
-            }
+            nums[(calc_rows[i] * j) - 1] = true;
         }
     }
-    else // otherwise, use the more memory-friendly method, which takes more time
+    printf("%d finished populating bool list\n", my_rank);
+    for (long long i = 0; i < max_num; i++)
     {
-        // set initial value
-        out = realloc(out, (outsize + 1) * sizeof(int));
-        out[outsize++] = calc_rows[0];
-        bool test = false;
-        for (int i = 0; i < num_rows; i++) // for each row
+        if (nums[i] == true)
         {
-            for (int j = 1; j <= calc_rows[i]; j++) // for each column
-            {
-                for (int k = 0; k < outsize; k++)
-                {
-                    if (calc_rows[i] * j == out[k])
-                    {
-                        test = true;
-                        break;
-                    }
-                }
-                if (test == true)
-                {
-                    continue;
-                }
-                out = realloc(out, (outsize + 1) * sizeof(int));
-                out[outsize++] = calc_rows[i] * j;
-            }
+            out = realloc(out, (++outsize) * sizeof(long long));
+            out[outsize-1] = i+1;
         }
     }
+    printf("%d outsize: %lld\n", my_rank, outsize);
     if (my_rank == 0)
     {
-        int temp;
+        long long temp;
         for (int i = 1; i < num_procs; i++)
         {
             MPI_Probe(i, 0, MPI_COMM_WORLD, &status);
-            MPI_Get_count(&status, MPI_INT, &insize);
-            in = realloc(in, insize * sizeof(int));
-            MPI_Recv(in, insize, MPI_INT, i, 0, MPI_COMM_WORLD, NULL);
+            MPI_Get_count(&status, MPI_LONG_LONG, &insize);
+            in = realloc(in, insize * sizeof(long long));
+            MPI_Recv(in, insize, MPI_LONG_LONG, i, 0, MPI_COMM_WORLD, NULL);
             temp = outsize;
             outsize += insize;
-            out = realloc(out, outsize * sizeof(int));
-            memcpy(out + temp, in, insize * sizeof(int));
+            out = realloc(out, outsize * sizeof(long long));
+            memcpy(out + temp, in, insize * sizeof(long long));
             printf("Proc %d received Proc %d successfully\n", my_rank, i);
         }
-        printf("number of elements received: %d\n", outsize);
-        // /*
-        //radix sort out array O(n)
-        long max = N*N;
-        int count[10] = {0};
-        int output[outsize+1];
-        for (long place = 1; max / place > 0; place *= 10)
+        printf("number of elements received: %lld\n", outsize);
+        long long max = N * N;
+        long long count[10] = {0};
+        long long output[outsize + 1];
+        for (long long place = 1; max / place > 0; place *= 10)
         {
-            memset(count, 0, sizeof(count));
-            for (int i = 0; i < outsize; i++)
+            memset(count, 0, 10 * sizeof(long long));
+            for (long long i = 0; i < outsize; i++)
             {
-                count[(out[i]/place) % 10]++;
+                count[(out[i] / place) % 10]++;
             }
-            for (int i = 1; i < 10; i++)
+            for (long long i = 1; i < 10; i++)
             {
-                count[i] += count[i-1];
+                count[i] += count[i - 1];
             }
-            for (int i = outsize-1; i >= 0; i--)
+            for (long long i = outsize - 1; i >= 0; i--)
             {
-                output[count[(out[i]/place)%10]-1] = out[i];
-                count[(out[i]/place)%10]--;
+                output[count[(out[i] / place) % 10] - 1] = out[i];
+                count[(out[i] / place) % 10]--;
             }
-            for (int i = 0; i < outsize; i++)
+            for (long long i = 0; i < outsize; i++)
             {
                 out[i] = output[i];
             }
         }
-        //then remove duplicates from sorted array O(n)
+        // then remove duplicates from sorted array O(n)
         printf("Radix sort completed\n");
 
-        int temp2[outsize];
-        int j = 0;
-        for (int i = 0; i < outsize - 1; i++)
+        //long long temp2[outsize];
+        //long long j = 0;
+        long long j = 1;
+        for (long long i = 0; i < outsize - 1; i++)
         {
-            if (out[i] != out[i+1])
+            if (out[i] != out[i + 1])
             {
-                temp2[j++] = out[i];
+                //temp2[j++] = out[i];
+                j++;
             }
         }
-        temp2[j++] = out[outsize - 1];
-        
-        // */
+        //temp2[j++] = out[outsize - 1];
         printf("\n");
-        printf("Final output: %d\n", j);
+        printf("Final output: %lld\n", j);
         free(in);
+        free(nums);
     }
     else
     {
-        MPI_Send(out, outsize, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        MPI_Send(out, outsize, MPI_LONG_LONG, 0, 0, MPI_COMM_WORLD);
     }
     free(out);
+    free(calc_rows);
     MPI_Finalize();
     return 0;
 }
