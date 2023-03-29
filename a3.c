@@ -45,7 +45,10 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
 
+
+
     // each processor finds which rows to calculate
+    // this is O(n/p)
     int *calc_rows;
     int num_rows;
     num_rows = (N / 2) / num_procs;
@@ -91,12 +94,15 @@ int main(int argc, char *argv[])
     }
     printf("%d load: %d\n", my_rank, counter);
 #endif
+
+
+    // using a modified hash set, populate the hash set with numbers that appear in the processor's products
+    // this is O((n/p)^2)
+    // using a list, where if you insert X, you traverse the list for X, takes O((n/p)^2 log(n/p)) i think 
     bool *nums;
     long long max_num = ((long long)N - my_rank) * (N - my_rank);
-    printf("%d max num: %lld\n", my_rank, max_num);
     nums = malloc((max_num) * sizeof(bool));
     memset(nums, false, (max_num) * sizeof(bool));
-    printf("%d finished memset\n", my_rank);
     for (int i = 0; i < num_rows; i++)
     {
         for (long long j = 1; j <= calc_rows[i]; j++)
@@ -104,7 +110,7 @@ int main(int argc, char *argv[])
             nums[(calc_rows[i] * j) - 1] = true;
         }
     }
-    printf("%d finished populating bool list\n", my_rank);
+    free(calc_rows);
     for (long long i = 0; i < max_num; i++)
     {
         if (nums[i] == true)
@@ -113,6 +119,11 @@ int main(int argc, char *argv[])
             out[outsize-1] = i+1;
         }
     }
+    free(nums);
+
+    // send it all to master proc for final processing
+    // uses a list so its O(n^2 logn), but at this point, n is pretty heavily reduced, so its like, basically, n^2 but not really
+    // i didn't use hash set here because im scared of crashing teach with memory leaks
     printf("%d outsize: %lld\n", my_rank, outsize);
     if (my_rank == 0)
     {
@@ -121,18 +132,18 @@ int main(int argc, char *argv[])
         {
             //MPI_Probe(i, 0, MPI_COMM_WORLD, &status);
             //MPI_Get_count(&status, MPI_LONG_LONG, &insize);
+            // MPI_Get_count only works up to int max, so we have to send/recv the number manually before sending the array
             MPI_Recv(&insize, 1, MPI_LONG_LONG, i, 1, MPI_COMM_WORLD, NULL);
             in = realloc(in, insize * sizeof(long long));
             MPI_Recv(in, insize, MPI_LONG_LONG, i, 0, MPI_COMM_WORLD, NULL);
             temp = outsize;
             outsize += insize;
-            out = realloc(out, outsize * sizeof(long long));
+            out = realloc(out, outsize * sizeof(long long)); 
             memcpy(out + temp, in, insize * sizeof(long long));
-            printf("Proc %d received Proc %d successfully\n", my_rank, i);
         }
-        printf("number of elements received: %lld\n", outsize);
+        printf("\nnumber of elements received: %lld\n", outsize);
         long long max = N * N;
-        long long count[10] = {0};
+        long long count[10] = {0,0,0,0,0,0,0,0,0,0};
         long long output[outsize + 1];
         for (long long place = 1; max / place > 0; place *= 10)
         {
@@ -173,7 +184,6 @@ int main(int argc, char *argv[])
         printf("\n");
         printf("Final output: %lld\n", j);
         free(in);
-        free(nums);
     }
     else
     {
