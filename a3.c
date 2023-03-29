@@ -34,7 +34,7 @@ int main(int argc, char *argv[])
     double start_time, end_time, time_elapsed;
     MPI_Status status;
     long long *in = NULL;
-    int insize;
+    long long insize;
     long long *out = NULL;
     long long outsize = 0;
     int N = strtol(argv[1], NULL, 10);
@@ -119,8 +119,9 @@ int main(int argc, char *argv[])
         long long temp;
         for (int i = 1; i < num_procs; i++)
         {
-            MPI_Probe(i, 0, MPI_COMM_WORLD, &status);
-            MPI_Get_count(&status, MPI_LONG_LONG, &insize);
+            //MPI_Probe(i, 0, MPI_COMM_WORLD, &status);
+            //MPI_Get_count(&status, MPI_LONG_LONG, &insize);
+            MPI_Recv(&insize, 1, MPI_LONG_LONG, i, 1, MPI_COMM_WORLD, NULL);
             in = realloc(in, insize * sizeof(long long));
             MPI_Recv(in, insize, MPI_LONG_LONG, i, 0, MPI_COMM_WORLD, NULL);
             temp = outsize;
@@ -176,6 +177,7 @@ int main(int argc, char *argv[])
     }
     else
     {
+        MPI_Send(&outsize, 1, MPI_LONG_LONG, 0, 1, MPI_COMM_WORLD);
         MPI_Send(out, outsize, MPI_LONG_LONG, 0, 0, MPI_COMM_WORLD);
     }
     free(out);
